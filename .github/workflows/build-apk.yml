@@ -1,4 +1,3 @@
-
 name: Build MyAgenda APK
 
 on:
@@ -12,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Download project
@@ -21,7 +20,7 @@ jobs:
       - name: Prepare Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: '22'
 
       - name: Prepare Java
         uses: actions/setup-java@v6
@@ -34,31 +33,59 @@ jobs:
 
       - name: Extract project files
         run: |
+          mkdir -p source
           unzip -o MyAgenda-proyecto.zip -d source
-          cp -a source/. .
+
+          echo "Contenido del ZIP:"
+          find source -maxdepth 4 -type f | head -80
+
+          PACKAGE_JSON="$(find source -type f -name package.json -not -path '*/node_modules/*' -print -quit)"
+
+          if [ -z "$PACKAGE_JSON" ]; then
+            echo "ERROR: No se encontró package.json dentro del ZIP."
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$PACKAGE_JSON")"
+          echo "Proyecto encontrado en: $PROJECT_DIR"
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          cd "$PROJECT_DIR"
+          npm install
 
       - name: Build web application
-        run: npm run build
+        run: |
+          cd "$PROJECT_DIR"
+          npm run build
 
       - name: Add Android platform
-        run: npx cap add android
+        run: |
+          cd "$PROJECT_DIR"
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
 
       - name: Synchronize Android project
-        run: npx cap sync android
+        run: |
+          cd "$PROJECT_DIR"
+          npx cap sync android
 
       - name: Compile APK
         run: |
-          cd android
+          cd "$PROJECT_DIR/android"
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Prepare APK file
+        run: |
+          cp "$PROJECT_DIR/android/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/MyAgenda-debug.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MyAgenda-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: MyAgenda-debug.apk
           if-no-files-found: error
           retention-days: 7
